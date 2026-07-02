@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Interview Coach</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background:#0f172a; color:#e2e8f0; max-width:700px; margin:40px auto; padding:20px; }
+  h1 { color:#38bdf8; }
+  .card { background:#1e293b; border-radius:12px; padding:20px; margin-bottom:16px; }
+  select, textarea, button { width:100%; padding:10px; border-radius:8px; border:none; margin-top:8px; font-size:15px; }
+  textarea { min-height:100px; background:#0f172a; color:#e2e8f0; border:1px solid #334155; }
+  button { background:#38bdf8; color:#0f172a; font-weight:bold; cursor:pointer; margin-top:10px; }
+  button:hover { background:#0ea5e9; }
+  button.mic { background:#f472b6; }
+  #question { font-size:18px; font-weight:600; }
+  .feedback ul { margin:6px 0; padding-left:20px; }
+  .score { display:inline-block; background:#334155; padding:4px 10px; border-radius:6px; margin-right:6px; }
+</style>
+</head>
+<body>
+  <h1>🎤 AI Interview Coach</h1>
+
+  <div class="card" id="setup">
+    <label>Choose role:</label>
+    <select id="role">
+      <option>Software Engineer</option>
+      <option>Data Analyst</option>
+      <option>HR / People Ops</option>
+      <option>Product Manager</option>
+    </select>
+    <button onclick="startSession()">Start Interview</button>
+  </div>
+
+  <div class="card" id="interview" style="display:none">
+    <p id="question"></p>
+    <textarea id="answer" placeholder="Type your answer, or use the mic..."></textarea>
+    <button class="mic" onclick="startListening()">🎙️ Speak Answer</button>
+    <button onclick="submitAnswer()">Submit Answer</button>
+  </div>
+
+  <div class="card feedback" id="feedback" style="display:none"></div>
+
+  <div class="card" id="controls" style="display:none">
+    <button onclick="nextQuestion()">Next Question ➜</button>
+    <button onclick="showSummary()">Finish & Show Summary</button>
+  </div>
+
+  <div class="card" id="summary" style="display:none"></div>
+
+<script>
+let sessionId = null;
+let currentIndex = null;
+
+async function startSession() {
+  const role = document.getElementById('role').value;
+  const res = await fetch('/start_session', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({role})
+  });
+  const data = await res.json();
+  sessionId = data.session_id;
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('interview').style.display = 'block';
+  await nextQuestion();
+}
+
+async function nextQuestion() {
+  document.getElementById('feedback').style.display = 'none';
+  document.getElementById('controls').style.display = 'none';
+  document.getElementById('answer').value = '';
+  const res = await fetch('/generate_question', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: sessionId})
+  });
+  const data = await res.json();
+  currentIndex = data.question_index;
+  document.getElementById('question').innerText = data.question;
+  document.getElementById('interview').style.display = 'block';
+}
+
+async function submitAnswer() {
+  const answer = document.getElementById('answer').value;
+  const res = await fetch('/evaluate_answer', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: sessionId, question_index: currentIndex, answer})
+  });
+  const fb = await res.json();
+  const box = document.getElementById('feedback');
+  box.style.display = 'block';
+  if (fb.error) {
+    box.innerHTML = `<p>Could not evaluate: ${fb.raw || fb.error}</p>`;
+  } else {
+    box.innerHTML = `
+      <div>
+        <span class="score">Clarity: ${fb.clarity_score}/10</span>
+        <span class="score">Content: ${fb.content_score}/10</span>
+        <span class="score">Confidence: ${fb.confidence_score}/10</span>
+      </div>
+      <p><strong>Strengths:</strong></p><ul>${fb.strengths.map(s=>`<li>${s}</li>`).join('')}</ul>
+      <p><strong>Improvements:</strong></p><ul>${fb.improvements.map(s=>`<li>${s}</li>`).join('')}</ul>
+      <p><strong>Tip:</strong> ${fb.ideal_answer_tip}</p>
+    `;
+  }
+  document.getElementById('controls').style.display = 'block';
+}
+
+async function showSummary() {
+  const res = await fetch('/summary', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({session_id: sessionId})
+  });
+  const data = await res.json();
+  document.getElementById('interview').style.display = 'none';
+  document.getElementById('feedback').style.display = 'none';
+  document.getElementById('controls').style.display = 'none';
+  const box = document.getElementById('summary');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <h2>Interview Summary</h2>
+    <p>Questions answered: ${data.questions_answered}</p>
+    <p>Average Clarity: ${data.avg_clarity}/10</p>
+    <p>Average Content: ${data.avg_content}/10</p>
+    <p>Average Confidence: ${data.avg_confidence}/10</p>
+  `;
+}
+
+// Web Speech API for voice input
+function startListening() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) { alert('Speech recognition not supported in this browser. Use Chrome.'); return; }
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    document.getElementById('answer').value += transcript + ' ';
+  };
+  recognition.start();
+}
+</script>
+</body>
+</html>
